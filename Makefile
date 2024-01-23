@@ -109,14 +109,9 @@ helm-test: helm-controller-version kind ct ko-build-all
 	@kubectl create ns capsule-system
 	@make helm-install
 
-helm-install:
-	@kubectl apply --server-side=true -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.2/cert-manager.yaml
-	@make install-capsule
-	@kubectl apply --server-side=true -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.58.0/bundle.yaml
+helm-install: install-dependencies
 	@ct install --config $(SRC_ROOT)/.github/configs/ct.yaml --namespace=capsule-system --all --debug
 
-helm-destroy:
-	@kind delete cluster --name capsule-charts
 
 ####################
 # -- Testing
@@ -126,23 +121,17 @@ helm-destroy:
 e2e: e2e-build e2e-install e2e-exec
 
 .PHONY: e2e-exec
-e2e-exec:
-	@./e2e/run.bash $${CLIENT_TEST:-kubectl}-$${CAPSULE_PROXY_MODE:-https}
+e2e-exec: ginkgo
+	$(GINKGO) -v -tags e2e ./e2e
 
 .PHONY: e2e-build
 e2e-build:
 	@echo "Building kubernetes env using Kind $${KIND_K8S_VERSION:-v1.22.0}..."
 	@kind create cluster --name capsule --image kindest/node:$${KIND_K8S_VERSION:-v1.22.0} --config ./e2e/kind.yaml --wait=120s \
 		&& kubectl taint nodes capsule-worker2 key1=value1:NoSchedule
-	@helm repo add bitnami https://charts.bitnami.com/bitnami
-	@helm repo update
-	@helm upgrade --install --namespace metrics-system --create-namespace metrics-server bitnami/metrics-server \
-		--set apiService.create=true --set "extraArgs[0]=--kubelet-insecure-tls=true" --version 6.2.9
-	@echo "Waiting for metrics-server pod to be ready for listing metrics"
-	@kubectl --namespace metrics-system wait --for=condition=ready --timeout=320s pod -l app.kubernetes.io/instance=metrics-server
 
 .PHONY: e2e-install
-e2e-install: install-capsule install-capsule-proxy rbac-fix
+e2e-install: install-dependencies install-capsule-proxy rbac-fix
 
 .PHONY: e2e-load-image
 e2e-load-image: ko-build-all
@@ -153,6 +142,17 @@ e2e-load-image: ko-build-all
 e2e-destroy:
 	kind delete cluster --name capsule
 
+install-dependencies: install-capsule
+	@echo "Installing cert-manager..."
+	@kubectl apply --force-conflicts --server-side=true -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.2/cert-manager.yaml
+	@echo "Installing metrics-server..."
+	@helm repo add bitnami https://charts.bitnami.com/bitnami
+	@helm repo update
+	@helm upgrade --install --namespace metrics-system --create-namespace metrics-server bitnami/metrics-server \
+		--set apiService.create=true --set "extraArgs[0]=--kubelet-insecure-tls=true" --version 6.2.9
+	@echo "Waiting for metrics-server pod to be ready for listing metrics"
+	@kubectl --namespace metrics-system wait --for=condition=ready --timeout=320s pod -l app.kubernetes.io/instance=metrics-server
+
 install-capsule:
 	@echo "Installing capsule..."
 	@helm repo add projectcapsule https://projectcapsule.github.io/charts
@@ -161,7 +161,7 @@ install-capsule:
 		--set "manager.options.forceTenantPrefix=true" \
 		--set "options.logLevel=8"
 
-install-capsule-proxy: mkcert e2e-load-image
+install-capsule-proxy: e2e-load-image
 	@echo "Installing Capsule-Proxy..."
 ifeq ($(CAPSULE_PROXY_MODE),http)
 	@echo "Running in HTTP mode"
@@ -183,29 +183,6 @@ ifeq ($(CAPSULE_PROXY_MODE),http)
 		--set "options.generateCertificates=false"
 else
 	@echo "Running in HTTPS mode"
-	@echo "capsule proxy certificates..."
-	cd hack && $(MKCERT) -install && $(MKCERT) 127.0.0.1  \
-		&& kubectl --namespace capsule-systemdelete secret capsule-proxy \
-		&& kubectl --namespace capsule-system create secret generic capsule-proxy --from-file=tls.key=./127.0.0.1-key.pem --from-file=tls.crt=./127.0.0.1.pem --from-literal=ca=$$(cat $(ROOTCA) | base64 |tr -d '\n')
-	@echo "kubeconfig configurations..."
-	@cd hack \
-		&& curl -s https://raw.githubusercontent.com/projectcapsule/capsule/main/hack/create-user.sh | bash -s -- alice oil capsule.clastix.io \
-		&& mv alice-oil.kubeconfig alice.kubeconfig \
-		&& KUBECONFIG=alice.kubeconfig kubectl config set clusters.kind-capsule.certificate-authority-data $$(cat $(ROOTCA) | base64 |tr -d '\n') \
-		&& KUBECONFIG=alice.kubeconfig kubectl config set clusters.kind-capsule.server https://127.0.0.1:9001 \
-		&& curl -s https://raw.githubusercontent.com/projectcapsule/capsule/main/hack/create-user.sh | bash -s -- bob gas capsule.clastix.io \
-		&& mv bob-gas.kubeconfig bob.kubeconfig \
-		&& KUBECONFIG=bob.kubeconfig kubectl config set clusters.kind-capsule.certificate-authority-data $$(cat $(ROOTCA) | base64 |tr -d '\n') \
-		&& KUBECONFIG=bob.kubeconfig kubectl config set clusters.kind-capsule.server https://127.0.0.1:9001 \
-		&& curl -s https://raw.githubusercontent.com/projectcapsule/capsule/main/hack/create-user.sh | bash -s -- joe gas capsule.clastix.io,foo.clastix.io \
-		&& mv joe-gas.kubeconfig foo.clastix.io.kubeconfig \
-		&& KUBECONFIG=foo.clastix.io.kubeconfig kubectl config set clusters.kind-capsule.certificate-authority-data $$(cat $(ROOTCA) | base64 |tr -d '\n') \
-		&& KUBECONFIG=foo.clastix.io.kubeconfig kubectl config set clusters.kind-capsule.server https://127.0.0.1:9001 \
-		&& curl -s https://raw.githubusercontent.com/projectcapsule/capsule/main/hack/create-user.sh | bash -s -- dave soil capsule.clastix.io,bar.clastix.io \
-		&& mv dave-soil.kubeconfig dave.kubeconfig \
-		&& kubectl --kubeconfig=dave.kubeconfig config set clusters.kind-capsule.certificate-authority-data $$(cat $(ROOTCA) | base64 |tr -d '\n') \
-		&& kubectl --kubeconfig=dave.kubeconfig config set clusters.kind-capsule.server https://127.0.0.1:9001
-	@echo "Installing Capsule-Proxy using HELM..."
 	@helm upgrade --install capsule-proxy ./charts/capsule-proxy -n capsule-system \
 		--set "image.pullPolicy=Never" \
 		--set "image.tag=$(VERSION)" \
@@ -213,7 +190,11 @@ else
 		--set "service.nodePort=" \
 		--set "kind=DaemonSet" \
 		--set "daemonset.hostNetwork=true" \
-		--set "serviceMonitor.enabled=false"
+		--set "serviceMonitor.enabled=false" \
+		--set "certManager.generateCertificates=true" \
+		--set "certManager.certificate.dnsNames={localhost}" \
+		--set "certManager.certificate.ipAddresses={127.0.0.1}" \
+		--set "options.generateCertificates=false"
 endif
 
 rbac-fix:
@@ -276,6 +257,11 @@ KO = $(shell pwd)/bin/ko
 KO_VERSION = v0.14.1
 ko:
 	$(call go-install-tool,$(KO),github.com/google/ko@$(KO_VERSION))
+
+GINKGO         := $(shell pwd)/bin/ginkgo
+GINGKO_VERSION := v2.13.2
+ginkgo: ## Download ginkgo locally if necessary.
+	$(call go-install-tool,$(GINKGO),github.com/onsi/ginkgo/v2/ginkgo@$(GINGKO_VERSION))
 
 # go-install-tool will 'go install' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))

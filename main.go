@@ -16,6 +16,7 @@ import (
 	"github.com/clastix/capsule/pkg/indexer/tenant"
 	flag "github.com/spf13/pflag"
 	"github.com/thediveo/enumflag"
+	_ "go.uber.org/automaxprocs"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"

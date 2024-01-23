@@ -54,7 +54,7 @@ func (c *CapsuleConfiguration) Reconcile(ctx context.Context, request reconcile.
 	capsuleConfig := &capsulev1beta2.CapsuleConfiguration{}
 
 	if err := c.client.Get(ctx, types.NamespacedName{Name: request.Name}, capsuleConfig); err != nil {
-		panic(err)
+		panic(fmt.Sprintf("FAILED TO GET CAPSULE CONFIGURATION: %s", err))
 	}
 
 	CapsuleUserGroups = sets.NewString(capsuleConfig.Spec.UserGroups...)
