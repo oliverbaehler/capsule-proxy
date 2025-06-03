@@ -331,7 +331,7 @@ First match is used and can be specified multiple times as comma separated value
 	}
 
 	capsuleConfig := &controllers.CapsuleConfiguration{
-		Client:                      mgr.GetClient(),
+		Client:                      mgr.GetAPIReader(),
 		CapsuleConfigurationName:    capsuleConfigurationName,
 		DeprecatedCapsuleUserGroups: capsuleUserGroups,
 	}

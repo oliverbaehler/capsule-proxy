@@ -18,7 +18,7 @@ import (
 )
 
 type CapsuleConfiguration struct {
-	Client                      client.Client
+	Client                      client.Reader
 	CapsuleConfigurationName    string
 	DeprecatedCapsuleUserGroups []string
 }
