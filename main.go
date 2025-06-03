@@ -330,12 +330,13 @@ First match is used and can be specified multiple times as comma separated value
 		}
 	}
 
-	if err = (&controllers.CapsuleConfiguration{
+	capsuleConfig := &controllers.CapsuleConfiguration{
 		Client:                      mgr.GetClient(),
 		CapsuleConfigurationName:    capsuleConfigurationName,
 		DeprecatedCapsuleUserGroups: capsuleUserGroups,
-	}).SetupWithManager(ctx, mgr); err != nil {
-		log.Error(err, "cannot start CapsuleConfiguration controller for User Group list retrieval")
+	}
+	if err := capsuleConfig.Start(ctx); err != nil {
+		log.Error(err, "cannot initialize CapsuleConfiguration")
 		os.Exit(1)
 	}
 
